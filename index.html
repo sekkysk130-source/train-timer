@@ -433,7 +433,7 @@ window.removeAnchor=(schedKey,origTime)=>{
   const dt=state.wknd?'weekend':'weekday';
   const k=`${schedKey}_${dt}`;
   const data=state.calib[k]||{anchors:[],deleted:[]};
-  state.calib[k]={...data,anchors:data.anchors.filter(a=>a.orig!==origTime)};
+  state.calib[k]={...data,anchors:data.anchors.filter(a=>a.orig!==origTime)}; 
   save();
   flash('ลบจุดอ้างอิงแล้ว');
   render();
