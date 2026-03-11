@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="manifest" href="data:application/json,{}">
 <title>🚇 เดิน หรือ วิ่ง?</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -17,51 +16,24 @@ input[type="time"]::-webkit-calendar-picker-indicator{filter:invert(.6)}
 .mono{font-family:'SF Mono','JetBrains Mono','Courier New',monospace}
 .tiny{font-size:9px;color:#475569}
 .btn{border:none;cursor:pointer;font-family:inherit;transition:all .15s}
-.flash{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100;padding:8px 20px;border-radius:10px;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);color:#4ADE80;font-size:12px;font-weight:600;animation:pop .3s ease}
+.flash{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100;padding:8px 20px;border-radius:10px;font-size:12px;font-weight:600;animation:pop .3s ease}
+.flash-ok{background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.3);color:#4ADE80}
+.flash-err{background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#FCA5A5}
 @keyframes pop{from{opacity:0;transform:translateX(-50%) translateY(-8px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:50;display:flex;align-items:flex-end;justify-content:center}
 .panel{background:#1E293B;border-radius:20px 20px 0 0;padding:20px;width:100%;max-width:440px;max-height:75vh;overflow-y:auto}
 .editable{cursor:pointer;border-bottom:1.5px dashed rgba(250,204,21,.35);transition:border-color .15s}
 .editable:active{border-color:#FACC15}
-.history-chip{display:inline-flex;align-items:center;gap:2px;padding:3px 7px;border-radius:5px;font-size:10px;font-family:'SF Mono',monospace;background:rgba(99,102,241,.08);color:#A5B4FC;border:1px solid rgba(99,102,241,.12);margin:1px}
+.ed-arrive{border-bottom-color:rgba(96,165,250,.35)}
+.ed-arrive:active{border-bottom-color:#60A5FA}
+.chip{display:inline-flex;align-items:center;gap:2px;padding:3px 7px;border-radius:5px;font-size:10px;font-family:'SF Mono',monospace;background:rgba(99,102,241,.08);color:#A5B4FC;border:1px solid rgba(99,102,241,.12);margin:1px}
 </style>
 </head>
 <body>
 <div class="wrap" id="app"></div>
 <script>
-/*
-╔══════════════════════════════════════════════════════╗
-║  🚇 Bangkok Transit Timer — index.html              ║
-║  วิธีแก้ไข: ดูคำอธิบายแต่ละ section ด้านล่าง         ║
-╚══════════════════════════════════════════════════════╝
-
-=== วิธีแก้ไข ===
-
-1. ตารางเวลา (BASE SCHEDULES)
-   - แต่ละสายมีชื่อ เช่น purpleToTaoPoon, blueToChatuchak
-   - genTrains("เวลาแรก","เวลาสุดท้าย",[{from,to,iv}])
-     iv = interval = ความถี่ (นาที)
-   - ถ้ารถไฟฟ้าเปลี่ยนตาราง → แก้ตรง genTrains ของสายนั้น
-
-2. เส้นทาง (ROUTES)
-   - work = ไปทำงาน: ม่วง→น้ำเงิน→เขียว
-   - home = กลับบ้าน: เขียว→น้ำเงิน→ม่วง
-   - ถ้าเปลี่ยนสถานีต้นทาง/ปลายทาง → แก้ from/to ใน ROUTES
-
-3. ค่าเริ่มต้นเวลาเดินทาง (DEF_CFG)
-   - purpleTravel = เวลานั่งสีม่วง (นาที)
-   - walkTaoPoon = เวลาเดินเปลี่ยนสายที่เตาปูน
-   - แก้ตัวเลขตรงนี้ หรือแก้ในแอปก็ได้ (บันทึก localStorage)
-
-4. ข้อมูลที่ผู้ใช้บันทึก (localStorage)
-   - key: bkk-transit-v3
-   - เก็บ: cfg (เวลาเดินทาง), calib (เวลารถจริง), travelLog (ประวัติเวลาเดินทาง)
-   - ถ้าอยากรีเซ็ตทั้งหมด → ลบ key นี้ใน browser console:
-     localStorage.removeItem('bkk-transit-v3')
-*/
-
 // ============================================================
-// UTILITIES
+// UTILS
 // ============================================================
 const toM=t=>{const[h,m]=t.split(':').map(Number);return h*60+m};
 const fM=m=>{const t=((m%1440)+1440)%1440;return`${String(Math.floor(t/60)).padStart(2,'0')}:${String(t%60).padStart(2,'0')}`};
@@ -92,87 +64,37 @@ function calibrate(gen,anchors,deleted){
 function findNext(trains,after){const am=toM(after);for(const t of trains)if(toM(t)>=am)return t;return null;}
 
 // ============================================================
-// BASE SCHEDULES — แก้ตารางเวลาตรงนี้
+// BASE SCHEDULES
 // ============================================================
 const BASE={
-  // สายสีม่วง: คลองบางไผ่ → เตาปูน
   purpleToTaoPoon:{
-    weekday:genTrains("05:30","22:56",[
-      {from:"05:30",to:"06:30",iv:7},{from:"06:30",to:"08:30",iv:5},
-      {from:"08:30",to:"09:30",iv:6},{from:"09:30",to:"17:00",iv:7},
-      {from:"17:00",to:"20:00",iv:5},{from:"20:00",to:"21:00",iv:6},
-      {from:"21:00",to:"23:00",iv:10}
-    ]),
+    weekday:genTrains("05:30","22:56",[{from:"05:30",to:"06:30",iv:7},{from:"06:30",to:"08:30",iv:5},{from:"08:30",to:"09:30",iv:6},{from:"09:30",to:"17:00",iv:7},{from:"17:00",to:"20:00",iv:5},{from:"20:00",to:"21:00",iv:6},{from:"21:00",to:"23:00",iv:10}]),
     weekend:genTrains("06:00","22:56",[{from:"06:00",to:"23:00",iv:10}])
   },
-  // สายสีม่วง: เตาปูน → คลองบางไผ่
   purpleToKBP:{
-    weekday:genTrains("06:00","23:33",[
-      {from:"06:00",to:"06:30",iv:7},{from:"06:30",to:"08:30",iv:5},
-      {from:"08:30",to:"09:30",iv:6},{from:"09:30",to:"17:00",iv:7},
-      {from:"17:00",to:"20:00",iv:5},{from:"20:00",to:"21:00",iv:6},
-      {from:"21:00",to:"23:33",iv:10}
-    ]),
+    weekday:genTrains("06:00","23:33",[{from:"06:00",to:"06:30",iv:7},{from:"06:30",to:"08:30",iv:5},{from:"08:30",to:"09:30",iv:6},{from:"09:30",to:"17:00",iv:7},{from:"17:00",to:"20:00",iv:5},{from:"20:00",to:"21:00",iv:6},{from:"21:00",to:"23:33",iv:10}]),
     weekend:genTrains("06:18","23:33",[{from:"06:18",to:"23:33",iv:10}])
   },
-  // สายสีน้ำเงิน: เตาปูน → จตุจักร
   blueToChatuchak:{
-    weekday:genTrains("05:30","23:30",[
-      {from:"05:30",to:"07:00",iv:5},{from:"07:00",to:"09:00",iv:3},
-      {from:"09:00",to:"09:30",iv:7},{from:"09:30",to:"17:00",iv:5},
-      {from:"17:00",to:"19:30",iv:4},{from:"19:30",to:"21:00",iv:5},
-      {from:"21:00",to:"24:00",iv:8}
-    ]),
-    weekend:genTrains("06:00","23:30",[
-      {from:"06:00",to:"10:00",iv:8},{from:"10:00",to:"19:00",iv:7},
-      {from:"19:00",to:"24:00",iv:8}
-    ])
+    weekday:genTrains("05:30","23:30",[{from:"05:30",to:"07:00",iv:5},{from:"07:00",to:"09:00",iv:3},{from:"09:00",to:"09:30",iv:7},{from:"09:30",to:"17:00",iv:5},{from:"17:00",to:"19:30",iv:4},{from:"19:30",to:"21:00",iv:5},{from:"21:00",to:"24:00",iv:8}]),
+    weekend:genTrains("06:00","23:30",[{from:"06:00",to:"10:00",iv:8},{from:"10:00",to:"19:00",iv:7},{from:"19:00",to:"24:00",iv:8}])
   },
-  // สายสีน้ำเงิน: จตุจักร → เตาปูน
   blueToTaoPoon:{
-    weekday:genTrains("05:30","23:30",[
-      {from:"05:30",to:"07:00",iv:5},{from:"07:00",to:"09:00",iv:3},
-      {from:"09:00",to:"09:30",iv:7},{from:"09:30",to:"17:00",iv:5},
-      {from:"17:00",to:"19:30",iv:4},{from:"19:30",to:"21:00",iv:5},
-      {from:"21:00",to:"24:00",iv:8}
-    ]),
-    weekend:genTrains("06:00","23:30",[
-      {from:"06:00",to:"10:00",iv:8},{from:"10:00",to:"19:00",iv:7},
-      {from:"19:00",to:"24:00",iv:8}
-    ])
+    weekday:genTrains("05:30","23:30",[{from:"05:30",to:"07:00",iv:5},{from:"07:00",to:"09:00",iv:3},{from:"09:00",to:"09:30",iv:7},{from:"09:30",to:"17:00",iv:5},{from:"17:00",to:"19:30",iv:4},{from:"19:30",to:"21:00",iv:5},{from:"21:00",to:"24:00",iv:8}]),
+    weekend:genTrains("06:00","23:30",[{from:"06:00",to:"10:00",iv:8},{from:"10:00",to:"19:00",iv:7},{from:"19:00",to:"24:00",iv:8}])
   },
-  // BTS สายสีเขียว: หมอชิต → ชิดลม
   greenToChitLom:{
-    weekday:genTrains("05:15","23:50",[
-      {from:"05:15",to:"06:00",iv:6},{from:"06:00",to:"07:00",iv:5},
-      {from:"07:00",to:"09:00",iv:3},{from:"09:00",to:"09:30",iv:4},
-      {from:"09:30",to:"16:00",iv:7},{from:"16:00",to:"17:00",iv:5},
-      {from:"17:00",to:"20:00",iv:3},{from:"20:00",to:"21:00",iv:5},
-      {from:"21:00",to:"22:00",iv:6},{from:"22:00",to:"24:00",iv:8}
-    ]),
-    weekend:genTrains("05:55","23:50",[
-      {from:"05:55",to:"08:00",iv:7},{from:"08:00",to:"11:00",iv:6},
-      {from:"11:00",to:"21:00",iv:5},{from:"21:00",to:"24:00",iv:8}
-    ])
+    weekday:genTrains("05:15","23:50",[{from:"05:15",to:"06:00",iv:6},{from:"06:00",to:"07:00",iv:5},{from:"07:00",to:"09:00",iv:3},{from:"09:00",to:"09:30",iv:4},{from:"09:30",to:"16:00",iv:7},{from:"16:00",to:"17:00",iv:5},{from:"17:00",to:"20:00",iv:3},{from:"20:00",to:"21:00",iv:5},{from:"21:00",to:"22:00",iv:6},{from:"22:00",to:"24:00",iv:8}]),
+    weekend:genTrains("05:55","23:50",[{from:"05:55",to:"08:00",iv:7},{from:"08:00",to:"11:00",iv:6},{from:"11:00",to:"21:00",iv:5},{from:"21:00",to:"24:00",iv:8}])
   },
-  // BTS สายสีเขียว: ชิดลม → หมอชิต
   greenToMoChit:{
-    weekday:genTrains("05:31","23:50",[
-      {from:"05:31",to:"06:00",iv:6},{from:"06:00",to:"07:00",iv:5},
-      {from:"07:00",to:"09:00",iv:3},{from:"09:00",to:"09:30",iv:4},
-      {from:"09:30",to:"16:00",iv:7},{from:"16:00",to:"17:00",iv:5},
-      {from:"17:00",to:"20:00",iv:3},{from:"20:00",to:"21:00",iv:5},
-      {from:"21:00",to:"22:00",iv:6},{from:"22:00",to:"24:00",iv:8}
-    ]),
-    weekend:genTrains("05:55","23:50",[
-      {from:"05:55",to:"08:00",iv:7},{from:"08:00",to:"11:00",iv:6},
-      {from:"11:00",to:"21:00",iv:5},{from:"21:00",to:"24:00",iv:8}
-    ])
+    weekday:genTrains("05:31","23:50",[{from:"05:31",to:"06:00",iv:6},{from:"06:00",to:"07:00",iv:5},{from:"07:00",to:"09:00",iv:3},{from:"09:00",to:"09:30",iv:4},{from:"09:30",to:"16:00",iv:7},{from:"16:00",to:"17:00",iv:5},{from:"17:00",to:"20:00",iv:3},{from:"20:00",to:"21:00",iv:5},{from:"21:00",to:"22:00",iv:6},{from:"22:00",to:"24:00",iv:8}]),
+    weekend:genTrains("05:55","23:50",[{from:"05:55",to:"08:00",iv:7},{from:"08:00",to:"11:00",iv:6},{from:"11:00",to:"21:00",iv:5},{from:"21:00",to:"24:00",iv:8}])
   }
 };
 
 // ============================================================
-// ROUTES — แก้เส้นทาง/สถานีตรงนี้
+// ROUTES
 // ============================================================
 const ROUTES={
   work:[
@@ -192,17 +114,9 @@ const ROUTES={
 };
 
 // ============================================================
-// DEFAULT CONFIG — ค่าเริ่มต้นเวลาเดินทาง (นาที)
+// DEFAULT CONFIG
 // ============================================================
-const DEF_CFG={
-  purpleTravel:33,       // สีม่วง: คลองบางไผ่ ↔ เตาปูน
-  blueTaoPoonChatuchak:7,// สีน้ำเงิน: เตาปูน → จตุจักร
-  blueChatuchakTaoPoon:7,// สีน้ำเงิน: จตุจักร → เตาปูน
-  greenMoChitChitLom:15, // สีเขียว: หมอชิต → ชิดลม
-  greenChitLomMoChit:15, // สีเขียว: ชิดลม → หมอชิต
-  walkTaoPoon:4,         // เดินเปลี่ยนสาย เตาปูน
-  walkChatuchakMoChit:6  // เดินเปลี่ยนสาย จตุจักร↔หมอชิต
-};
+const DEF_CFG={purpleTravel:33,blueTaoPoonChatuchak:7,blueChatuchakTaoPoon:7,greenMoChitChitLom:15,greenChitLomMoChit:15,walkTaoPoon:4,walkChatuchakMoChit:6};
 
 function statusOf(w){
   if(w<=1)return{text:'วิ่งเลย!!',emoji:'🏃‍♂️💨',color:'#EF4444',bg:'rgba(239,68,68,.10)',bd:'rgba(239,68,68,.22)'};
@@ -212,28 +126,88 @@ function statusOf(w){
 }
 
 // ============================================================
-// STATE + localStorage
+// STATE + STORAGE — ใช้ทั้ง localStorage + verify ทุกครั้ง
 // ============================================================
-let S={
-  time:'06:00',dir:'work',wknd:false,showCfg:false,
-  cfg:{...DEF_CFG},
-  calib:{},       // {schedKey_dayType:{anchors:[],deleted:[]}}
-  travelLog:{}    // {travelKey:[{depart,arrive,mins,date},...]}
-};
+const STORE_KEY='bkk-transit-v3';
+const SESSION_KEY='bkk-transit-session';
 
-function load(){try{const d=JSON.parse(localStorage.getItem('bkk-transit-v3'));if(d){S.cfg=d.cfg||{...DEF_CFG};S.calib=d.calib||{};S.travelLog=d.travelLog||{};}}catch{}}
-function save(){try{localStorage.setItem('bkk-transit-v3',JSON.stringify({cfg:S.cfg,calib:S.calib,travelLog:S.travelLog}));}catch{}}
-function flash(msg){const e=document.createElement('div');e.className='flash';e.textContent=msg;document.body.appendChild(e);setTimeout(()=>e.remove(),1800);}
+// Default time = current time (not hardcoded 06:00)
+const _now=new Date();
+const _defaultTime=fM(_now.getHours()*60+_now.getMinutes());
+// Auto-detect weekend
+const _isWeekend=_now.getDay()===0||_now.getDay()===6;
+// Auto-detect direction: before 12:00 = going to work, after = going home
+const _defaultDir=_now.getHours()<12?'work':'home';
+
+let S={time:_defaultTime,dir:_defaultDir,wknd:_isWeekend,showCfg:false,cfg:{...DEF_CFG},calib:{},travelLog:{}};
+
+function load(){
+  try{
+    // Load persistent data (calibration, travel log, config)
+    const raw=localStorage.getItem(STORE_KEY);
+    if(raw){
+      const d=JSON.parse(raw);
+      if(d.cfg)S.cfg={...DEF_CFG,...d.cfg};
+      if(d.calib)S.calib=d.calib;
+      if(d.travelLog)S.travelLog=d.travelLog;
+    }
+    // Load session data (time, direction) - survives app switching
+    const sess=localStorage.getItem(SESSION_KEY);
+    if(sess){
+      const sd=JSON.parse(sess);
+      // Only restore if saved less than 3 hours ago (not stale from yesterday)
+      if(sd.savedAt && (Date.now()-sd.savedAt)<3*60*60*1000){
+        if(sd.time)S.time=sd.time;
+        if(sd.dir)S.dir=sd.dir;
+        if(typeof sd.wknd==='boolean')S.wknd=sd.wknd;
+        console.log('[Transit] Restored session:',sd.time,sd.dir);
+      } else {
+        console.log('[Transit] Session expired, using current time');
+        localStorage.removeItem(SESSION_KEY);
+      }
+    }
+    console.log('[Transit] Loaded:',{calibKeys:Object.keys(S.calib).length,logKeys:Object.keys(S.travelLog).length,time:S.time});
+  }catch(e){console.error('[Transit] Load error:',e);}
+}
+
+function save(){
+  try{
+    const data={cfg:S.cfg,calib:S.calib,travelLog:S.travelLog};
+    localStorage.setItem(STORE_KEY,JSON.stringify(data));
+    const verify=localStorage.getItem(STORE_KEY);
+    if(!verify){flash('⚠️ บันทึกไม่สำเร็จ!','err');return false;}
+    return true;
+  }catch(e){
+    console.error('[Transit] Save error:',e);
+    flash('⚠️ บันทึกไม่ได้: '+e.message,'err');
+    return false;
+  }
+}
+
+// Save session state whenever time/dir/wknd changes
+function saveSession(){
+  try{localStorage.setItem(SESSION_KEY,JSON.stringify({time:S.time,dir:S.dir,wknd:S.wknd,savedAt:Date.now()}));}catch{}
+}
+
+// Also save session when user is about to leave (switch app, lock screen)
+document.addEventListener('visibilitychange',()=>{if(document.hidden)saveSession();});
+window.addEventListener('pagehide',saveSession);
+window.addEventListener('beforeunload',saveSession);
+
+function flash(msg,type){
+  const e=document.createElement('div');
+  e.className='flash '+(type==='err'?'flash-err':'flash-ok');
+  e.textContent=msg;document.body.appendChild(e);
+  setTimeout(()=>e.remove(),2000);
+}
+
 load();
 
-// Get effective travel time: use average from log if available, else default
 function getTravel(key){
   const log=S.travelLog[key];
   if(log&&log.length>0){
-    // Use average of last 5 entries
     const recent=log.slice(-5);
-    const avg=Math.round(recent.reduce((s,e)=>s+e.mins,0)/recent.length);
-    return avg;
+    return Math.round(recent.reduce((s,e)=>s+e.mins,0)/recent.length);
   }
   return S.cfg[key];
 }
@@ -258,15 +232,13 @@ function calc(){
       const travel=getTravel(step.travelKey);
       const arrive=fM(toM(tr)+travel);
       const log=S.travelLog[step.travelKey];
-      const hasLog=log&&log.length>0;
       legs.push({t:'train',line:step.line,lc:step.lc,from:step.from,to:step.to,
         atStation:i===0?S.time:undefined,trainTime:tr,wait:i===0?wait:undefined,
         arrive,travel,sched:step.sched,travelKey:step.travelKey,
-        logCount:hasLog?log.length:0,isAvg:hasLog});
+        logCount:log?.length||0,isAvg:log?.length>0});
       cur=arrive;
     } else {
-      const walk=S.cfg[step.walkKey];
-      const arrSt=cur;
+      const walk=S.cfg[step.walkKey];const arrSt=cur;
       const ready=fM(toM(cur)+walk);
       const nxt=findNext(getSched(step.nextSched),ready);
       if(!nxt){err='ไม่มีรถสายต่อไปแล้ว';break;}
@@ -281,7 +253,7 @@ function calc(){
 }
 
 // ============================================================
-// EDIT POPUP
+// EDIT POPUPS
 // ============================================================
 function showEdit(type,data){
   document.querySelector('.overlay')?.remove();
@@ -289,8 +261,7 @@ function showEdit(type,data){
   ov.onclick=e=>{if(e.target===ov)ov.remove();};
 
   if(type==='depart'){
-    // Edit departure time (calibration anchor)
-    const {sched,currentTime}=data;
+    const{sched,currentTime}=data;
     const dt=S.wknd?'weekend':'weekday';const k=`${sched}_${dt}`;
     const base=BASE[sched]?.[dt]||[];
     const cd=S.calib[k]||{anchors:[],deleted:[]};
@@ -303,7 +274,7 @@ function showEdit(type,data){
         <button class="btn" onclick="this.closest('.overlay').remove()" style="padding:6px 12px;border-radius:8px;background:rgba(100,116,139,.1);color:#94A3B8;font-size:12px">✕</button>
       </div>
       <div style="background:rgba(0,0,0,.2);border-radius:12px;padding:14px;margin-bottom:16px;text-align:center">
-        <div style="font-size:11px;color:#94A3B8;margin-bottom:4px">เวลาในตารางตอนนี้</div>
+        <div style="font-size:11px;color:#94A3B8;margin-bottom:4px">เวลาในตาราง</div>
         <div class="mono" style="font-size:28px;font-weight:700">${currentTime}</div>
       </div>
       <div style="margin-bottom:16px">
@@ -315,19 +286,17 @@ function showEdit(type,data){
         <button class="btn" onclick="doDeleteDepart('${sched}','${closest}')" style="padding:12px 16px;border-radius:10px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#FCA5A5;font-size:14px;font-weight:700">🗑️</button>
       </div>
       ${cd.anchors.length?`<div style="margin-top:14px;border-top:1px solid rgba(100,116,139,.1);padding-top:10px">
-        <div style="font-size:10px;color:#64748B;margin-bottom:4px">จุดอ้างอิง:</div>
-        <div style="display:flex;flex-wrap:wrap;gap:3px">${cd.anchors.map(a=>`<span class="history-chip">${a.orig}→${a.real}<button class="btn" onclick="doRemoveAnchor('${sched}','${a.orig}')" style="color:#EF4444;font-size:9px;padding:0;background:none;margin-left:2px">✕</button></span>`).join('')}</div>
+        <div style="font-size:10px;color:#64748B;margin-bottom:4px">จุดอ้างอิงที่บันทึก:</div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px">${cd.anchors.map(a=>`<span class="chip">${a.orig}→${a.real}<button class="btn" onclick="doRemoveAnchor('${sched}','${a.orig}')" style="color:#EF4444;font-size:9px;padding:0;background:none;margin-left:2px">✕</button></span>`).join('')}</div>
       </div>`:''}
-      <div style="margin-top:10px;font-size:10px;color:#475569;text-align:center">เวลาขบวนอื่นจะขยับตามอัตโนมัติ</div>
     </div>`;
   }
 
   else if(type==='arrive'){
-    // Edit arrival time → logs actual travel time
-    const {travelKey,trainDepart,currentArrive,line,from,to}=data;
+    const{travelKey,trainDepart,currentArrive,from,to}=data;
     const log=S.travelLog[travelKey]||[];
-    const defTravel=S.cfg[travelKey];
-    const avgTravel=log.length?Math.round(log.slice(-5).reduce((s,e)=>s+e.mins,0)/log.slice(-5).length):defTravel;
+    const defT=S.cfg[travelKey];
+    const avgT=log.length?Math.round(log.slice(-5).reduce((s,e)=>s+e.mins,0)/log.slice(-5).length):defT;
 
     ov.innerHTML=`<div class="panel">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -335,10 +304,8 @@ function showEdit(type,data){
         <button class="btn" onclick="this.closest('.overlay').remove()" style="padding:6px 12px;border-radius:8px;background:rgba(100,116,139,.1);color:#94A3B8;font-size:12px">✕</button>
       </div>
       <div style="background:rgba(0,0,0,.2);border-radius:12px;padding:14px;margin-bottom:12px">
-        <div style="display:flex;justify-content:space-between;font-size:12px;color:#94A3B8">
-          <span>${from} → ${to}</span>
-          <span>ค่าเริ่มต้น ${defTravel} นาที${log.length?` • เฉลี่ยจริง ${avgTravel} นาที`:''}</span>
-        </div>
+        <div style="font-size:12px;color:#94A3B8">${from} → ${to}</div>
+        <div style="font-size:11px;color:#64748B;margin-top:4px">ค่าเริ่มต้น ${defT} นาที${log.length?` • เฉลี่ยจริง <strong style="color:#60A5FA">${avgT} นาที</strong> (${log.length} ครั้ง)`:''}</div>
         <div style="display:flex;justify-content:space-between;margin-top:8px">
           <div><div class="tiny">ออก</div><div class="mono" style="font-size:20px;font-weight:700">${trainDepart}</div></div>
           <div style="text-align:right"><div class="tiny">ถึง (ตอนนี้)</div><div class="mono" style="font-size:20px;font-weight:700;color:#4ADE80">${currentArrive}</div></div>
@@ -350,11 +317,10 @@ function showEdit(type,data){
       </div>
       <button class="btn" onclick="doSaveArrive('${travelKey}','${trainDepart}')" style="width:100%;padding:12px;border-radius:10px;background:rgba(96,165,250,.15);border:1px solid rgba(96,165,250,.3);color:#60A5FA;font-size:14px;font-weight:700">🕐 บันทึกเวลาถึง</button>
       ${log.length?`<div style="margin-top:14px;border-top:1px solid rgba(100,116,139,.1);padding-top:10px">
-        <div style="font-size:10px;color:#64748B;margin-bottom:4px">ประวัติเวลาเดินทาง (ใช้คำนวณเฉลี่ย):</div>
-        <div style="display:flex;flex-wrap:wrap;gap:3px">${log.slice(-10).reverse().map(e=>`<span class="history-chip">${e.mins}m <span style="font-size:8px;color:#475569">${e.date||''}</span></span>`).join('')}</div>
+        <div style="font-size:10px;color:#64748B;margin-bottom:4px">ประวัติ (ใช้ 5 ล่าสุดคำนวณเฉลี่ย):</div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px">${log.slice(-10).reverse().map(e=>`<span class="chip">${e.mins}m <span style="font-size:8px;color:#475569">${e.date||''}</span></span>`).join('')}</div>
         <button class="btn" onclick="doClearLog('${travelKey}')" style="margin-top:6px;padding:4px 10px;border-radius:5px;background:rgba(239,68,68,.06);color:#FCA5A5;font-size:10px">ลบประวัติทั้งหมด</button>
       </div>`:''}
-      <div style="margin-top:10px;font-size:10px;color:#475569;text-align:center">ยิ่งบันทึกมาก ค่าเฉลี่ยยิ่งแม่น</div>
     </div>`;
   }
 
@@ -367,86 +333,86 @@ function showEdit(type,data){
 window.doSaveDepart=(sched,orig)=>{
   const v=document.getElementById('ed_val')?.value;if(!v)return;
   const dt=S.wknd?'weekend':'weekday';const k=`${sched}_${dt}`;
-  const d=S.calib[k]||{anchors:[],deleted:[]};
-  d.anchors=[...d.anchors.filter(a=>a.orig!==orig),{orig,real:v}];
-  S.calib[k]=d;save();document.querySelector('.overlay')?.remove();
-  flash('📌 บันทึกเวลารถออกแล้ว');render();
+  if(!S.calib[k])S.calib[k]={anchors:[],deleted:[]};
+  S.calib[k].anchors=[...S.calib[k].anchors.filter(a=>a.orig!==orig),{orig,real:v}];
+  if(save()){
+    document.querySelector('.overlay')?.remove();
+    flash('📌 บันทึกเวลารถออกแล้ว');render();
+  }
 };
 
 window.doDeleteDepart=(sched,orig)=>{
   const dt=S.wknd?'weekend':'weekday';const k=`${sched}_${dt}`;
-  const d=S.calib[k]||{anchors:[],deleted:[]};
-  d.deleted=[...new Set([...d.deleted,orig])];
-  S.calib[k]=d;save();document.querySelector('.overlay')?.remove();
-  flash('🗑️ ลบเวลานี้แล้ว');render();
+  if(!S.calib[k])S.calib[k]={anchors:[],deleted:[]};
+  S.calib[k].deleted=[...new Set([...S.calib[k].deleted,orig])];
+  if(save()){
+    document.querySelector('.overlay')?.remove();
+    flash('🗑️ ลบเวลานี้แล้ว');render();
+  }
 };
 
 window.doRemoveAnchor=(sched,orig)=>{
   const dt=S.wknd?'weekend':'weekday';const k=`${sched}_${dt}`;
-  const d=S.calib[k]||{anchors:[],deleted:[]};
-  d.anchors=d.anchors.filter(a=>a.orig!==orig);
-  S.calib[k]=d;save();flash('ลบจุดอ้างอิงแล้ว');render();
-  // re-open won't work easily, just close
-  document.querySelector('.overlay')?.remove();
+  if(S.calib[k])S.calib[k].anchors=S.calib[k].anchors.filter(a=>a.orig!==orig);
+  save();document.querySelector('.overlay')?.remove();
+  flash('ลบจุดอ้างอิงแล้ว');render();
 };
 
 window.doSaveArrive=(travelKey,trainDepart)=>{
   const v=document.getElementById('ed_val')?.value;if(!v)return;
-  const mins=toM(v)-toM(trainDepart);if(mins<=0||mins>120)return flash('เวลาไม่ถูกต้อง');
-  const today=new Date().toLocaleDateString('th-TH',{day:'numeric',month:'short'});
+  const mins=((toM(v)-toM(trainDepart))%1440+1440)%1440; // handle midnight crossing
+  if(mins<=0||mins>120){flash('⚠️ เวลาไม่ถูกต้อง (ต้อง 1-120 นาที)','err');return;}
+  const today=new Date().toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'2-digit'});
   if(!S.travelLog[travelKey])S.travelLog[travelKey]=[];
   S.travelLog[travelKey].push({depart:trainDepart,arrive:v,mins,date:today});
-  // Keep last 20
   if(S.travelLog[travelKey].length>20)S.travelLog[travelKey]=S.travelLog[travelKey].slice(-20);
-  save();document.querySelector('.overlay')?.remove();
-  flash(`🕐 บันทึกแล้ว: ${mins} นาที`);render();
+  if(save()){
+    document.querySelector('.overlay')?.remove();
+    flash(`🕐 บันทึกแล้ว: ${mins} นาที (${S.travelLog[travelKey].length} ครั้ง)`);render();
+  }
 };
 
-window.doClearLog=(travelKey)=>{
-  delete S.travelLog[travelKey];save();
-  document.querySelector('.overlay')?.remove();
-  flash('ลบประวัติแล้ว');render();
-};
-
-window.setDir=d=>{S.dir=d;render();};
-window.setWknd=w=>{S.wknd=w;render();};
-window.setTime=t=>{S.time=t;render();};
-window.useNow=()=>{const n=new Date();S.time=fM(n.getHours()*60+n.getMinutes());render();};
+window.doClearLog=tk=>{delete S.travelLog[tk];save();document.querySelector('.overlay')?.remove();flash('ลบประวัติแล้ว');render();};
+window.setDir=d=>{S.dir=d;saveSession();render();};
+window.setWknd=w=>{S.wknd=w;saveSession();render();};
+window.setTime=t=>{S.time=t;saveSession();render();};
+window.useNow=()=>{const n=new Date();S.time=fM(n.getHours()*60+n.getMinutes());saveSession();render();};
 window.toggleCfg=()=>{S.showCfg=!S.showCfg;render();};
 window.setCfgVal=(k,v)=>{S.cfg[k]=Number(v);save();};
 window.resetCfg=()=>{S.cfg={...DEF_CFG};save();render();};
-window.resetAll=()=>{if(confirm('ลบข้อมูลทั้งหมด?')){localStorage.removeItem('bkk-transit-v3');location.reload();}};
-
-window.editDepart=(sched,currentTime)=>showEdit('depart',{sched,currentTime});
-window.editArrive=(travelKey,trainDepart,currentArrive,line,from,to)=>showEdit('arrive',{travelKey,trainDepart,currentArrive,line,from,to});
+window.resetAll=()=>{if(confirm('ลบข้อมูลทั้งหมด?')){localStorage.removeItem(STORE_KEY);location.reload();}};
+window.editDepart=(sched,t)=>showEdit('depart',{sched,currentTime:t});
+window.editArrive=(tk,dep,arr,ln,fr,to)=>showEdit('arrive',{travelKey:tk,trainDepart:dep,currentArrive:arr,line:ln,from:fr,to});
 
 // ============================================================
 // RENDER
 // ============================================================
 function render(){
   const R=calc();const now=new Date();
-  const ck=fM(now.getHours()*60+now.getMinutes());
-  const ckS=`${ck}:${String(now.getSeconds()).padStart(2,'0')}`;
+  const ckS=`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+
+  // Count saved data
+  const calibCount=Object.values(S.calib).reduce((s,c)=>(c.anchors?.length||0)+s,0);
+  const logCount=Object.values(S.travelLog).reduce((s,l)=>l.length+s,0);
+  const dataInfo=calibCount+logCount>0?`<div style="font-size:9px;color:#475569;margin-top:2px">💾 ${calibCount} จุดอ้างอิง • ${logCount} ประวัติเดินทาง</div>`:'';
 
   let h=`<div style="text-align:center;padding:18px 0 14px">
     <div style="font-size:10px;letter-spacing:5px;color:#475569">BANGKOK TRANSIT</div>
     <h1 style="font-size:24px;font-weight:800;margin:2px 0;background:linear-gradient(135deg,#C4B5FD,#93C5FD,#86EFAC);-webkit-background-clip:text;-webkit-text-fill-color:transparent">🚇 เดิน หรือ วิ่ง?</h1>
     <div style="font-size:10px;color:#475569">คลองบางไผ่ ↔ ชิดลม</div>
+    ${dataInfo}
     <div id="ck" style="margin-top:4px;font-size:26px;font-weight:200;color:#94A3B8;font-family:'SF Mono',monospace;letter-spacing:3px">${ckS}</div>
   </div>`;
 
-  // Direction
+  // Direction + Day type + Time input (same as before)
   h+=`<div style="display:flex;border-radius:12px;overflow:hidden;margin-bottom:10px" class="card">
     ${['work','home'].map(d=>`<button class="btn" onclick="setDir('${d}')" style="flex:1;padding:11px;background:${S.dir===d?'rgba(99,102,241,.12)':'transparent'};color:${S.dir===d?'#E2E8F0':'#475569'};font-size:13px;font-weight:${S.dir===d?700:400}">${d==='work'?'🏢 ไปทำงาน':'🏠 กลับบ้าน'}</button>`).join('')}
-  </div>`;
-
-  // Day type
-  h+=`<div style="display:flex;gap:6px;margin-bottom:10px">
+  </div>
+  <div style="display:flex;gap:6px;margin-bottom:10px">
     ${[false,true].map(w=>`<button class="btn" onclick="setWknd(${w})" style="flex:1;padding:8px;border-radius:9px;background:${S.wknd===w?'rgba(99,102,241,.12)':'rgba(18,22,36,.4)'};color:${S.wknd===w?'#A5B4FC':'#475569'};border:${S.wknd===w?'1px solid rgba(99,102,241,.18)':'1px solid transparent'};font-size:12px;font-weight:${S.wknd===w?600:400}">${w?'🗓 เสาร์-อาทิตย์':'📅 จันทร์-ศุกร์'}</button>`).join('')}
   </div>`;
 
-  // Time input
-  const qTimes=S.dir==='work'?['05:30','05:45','06:00','06:15','06:30','06:45','07:00','07:30']:['17:00','17:30','18:00','18:30','19:00','19:30','20:00','20:30'];
+  const qT=S.dir==='work'?['05:30','05:45','06:00','06:15','06:30','06:45','07:00','07:30']:['17:00','17:30','18:00','18:30','19:00','19:30','20:00','20:30'];
   h+=`<div class="card" style="padding:14px 16px;margin-bottom:10px">
     <div style="font-size:10px;color:#64748B;letter-spacing:2px;margin-bottom:5px">⏰ เวลาถึงสถานี${S.dir==='work'?'คลองบางไผ่':'ชิดลม'}</div>
     <div style="display:flex;gap:8px;align-items:center">
@@ -454,24 +420,17 @@ function render(){
       <button class="btn" onclick="useNow()" style="padding:9px 12px;border-radius:9px;border:1px solid rgba(100,116,139,.1);background:rgba(99,102,241,.08);color:#A5B4FC;font-size:11px;font-weight:600">ตอนนี้</button>
     </div>
     <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap">
-      ${qTimes.map(t=>`<button class="btn" onclick="setTime('${t}')" style="padding:4px 10px;border-radius:6px;background:${S.time===t?'rgba(139,92,246,.18)':'rgba(18,22,36,.4)'};color:${S.time===t?'#C4B5FD':'#475569'};font-size:11px;font-weight:500">${t}</button>`).join('')}
+      ${qT.map(t=>`<button class="btn" onclick="setTime('${t}')" style="padding:4px 10px;border-radius:6px;background:${S.time===t?'rgba(139,92,246,.18)':'rgba(18,22,36,.4)'};color:${S.time===t?'#C4B5FD':'#475569'};font-size:11px;font-weight:500">${t}</button>`).join('')}
     </div>
   </div>`;
 
   // Countdown
   const nm=now.getHours()*60+now.getMinutes()+now.getSeconds()/60;const df=toM(S.time)-nm;
-  if(df>0&&df<180){
-    h+=`<div style="background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.12);border-radius:12px;padding:8px 14px;margin-bottom:10px;text-align:center">
-      <div style="font-size:9px;color:#FCA5A5;letter-spacing:2px">ออกจากบ้านอีก</div>
-      <div style="font-size:28px;font-weight:700;color:#FCA5A5;font-family:monospace">${Math.floor(df)}:${String(Math.floor((df%1)*60)).padStart(2,'0')}</div>
-    </div>`;
-  }
+  if(df>0&&df<180)h+=`<div style="background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.12);border-radius:12px;padding:8px 14px;margin-bottom:10px;text-align:center"><div style="font-size:9px;color:#FCA5A5;letter-spacing:2px">ออกจากบ้านอีก</div><div style="font-size:28px;font-weight:700;color:#FCA5A5;font-family:monospace">${Math.floor(df)}:${String(Math.floor((df%1)*60)).padStart(2,'0')}</div></div>`;
 
-  if(R.err){
-    h+=`<div class="card" style="padding:18px;text-align:center;color:#FCA5A5;font-size:14px;background:rgba(239,68,68,.08)">⚠️ ${R.err}</div>`;
-  } else {
+  if(R.err){h+=`<div class="card" style="padding:18px;text-align:center;color:#FCA5A5;font-size:14px;background:rgba(239,68,68,.08)">⚠️ ${R.err}</div>`;}
+  else{
     const tl=R.legs.filter(l=>l.t==='train');
-    // Summary
     h+=`<div class="card" style="padding:16px 18px;margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:flex-end">
         <div><div style="font-size:9px;color:#475569;letter-spacing:2px">รวม</div><div style="font-size:34px;font-weight:800;color:#F1F5F9;line-height:1">${R.total}<span style="font-size:14px;font-weight:400;color:#475569"> นาที</span></div></div>
@@ -480,7 +439,6 @@ function render(){
       <div style="display:flex;height:3px;border-radius:2px;overflow:hidden;margin-top:12px;gap:2px">${tl.map(l=>`<div style="flex:${l.travel};background:${l.lc};opacity:.7"></div>`).join('')}</div>
     </div>`;
 
-    // Legs
     R.legs.forEach((leg,i)=>{
       if(leg.t==='xfer'){
         const s=leg.status;
@@ -488,9 +446,7 @@ function render(){
           <div style="position:absolute;left:4px;top:0;bottom:0;border-left:2px dashed rgba(100,116,139,.12)"></div>
           <div style="position:absolute;left:-2px;top:12px;width:12px;height:12px;border-radius:50%;background:#0B0E18;border:2px solid #F59E0B;z-index:2"></div>
           <div style="background:${s.bg};border-radius:11px;padding:11px 13px;margin:4px 0;border:1px solid ${s.bd}">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
-              <span style="font-size:12px;font-weight:700">🔄 ${leg.station}</span><span style="font-size:17px">${s.emoji}</span>
-            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px"><span style="font-size:12px;font-weight:700">🔄 ${leg.station}</span><span style="font-size:17px">${s.emoji}</span></div>
             <div style="display:flex;align-items:center;margin-bottom:8px;background:rgba(0,0,0,.15);border-radius:8px;padding:8px 10px">
               <div style="flex:1;text-align:center"><div class="tiny">ลงสถานี</div><div class="mono" style="font-size:13px;font-weight:600;color:#CBD5E1">${leg.arriveStation}</div></div>
               <div style="color:#334155;font-size:10px">→</div>
@@ -500,14 +456,11 @@ function render(){
                 <div class="mono editable" onclick="editDepart('${leg.nextSched}','${leg.nextTrain}')" style="font-size:14px;font-weight:700;color:#F1F5F9">${leg.nextTrain}</div>
               </div>
             </div>
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <span style="font-size:14px;font-weight:700;color:${s.color}">${s.text}</span>
-              <span style="font-size:11px;color:#94A3B8">รอ <strong style="color:${s.color}">${leg.wait}</strong> นาที</span>
-            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:14px;font-weight:700;color:${s.color}">${s.text}</span><span style="font-size:11px;color:#94A3B8">รอ <strong style="color:${s.color}">${leg.wait}</strong> นาที</span></div>
           </div>
         </div>`;
       } else {
-        const avgLabel=leg.isAvg?`<span style="font-size:8px;color:#60A5FA;margin-left:4px">(เฉลี่ยจาก ${leg.logCount} ครั้ง)</span>`:'';
+        const avgLabel=leg.isAvg?`<span style="font-size:8px;color:#60A5FA;margin-left:3px">(เฉลี่ย ${leg.logCount} ครั้ง)</span>`:'';
         h+=`<div style="display:flex">
           <div style="width:10px;display:flex;flex-direction:column;align-items:center">
             <div style="width:10px;height:10px;border-radius:50%;background:${leg.lc};box-shadow:0 0 5px ${leg.lc}35;flex-shrink:0"></div>
@@ -527,15 +480,11 @@ function render(){
                   <div class="mono editable" onclick="editDepart('${leg.sched}','${leg.trainTime}')" style="font-size:16px;font-weight:700">${leg.trainTime}</div>
                 </div>
               </div>
-              <div style="display:flex;align-items:center;gap:6px;margin:3px 0">
-                <div style="flex:1;height:1px;background:${leg.lc}20"></div>
-                <span style="font-size:9px;color:#475569">🕐 ${leg.travel} นาที${avgLabel}</span>
-                <div style="flex:1;height:1px;background:${leg.lc}20"></div>
-              </div>
+              <div style="display:flex;align-items:center;gap:6px;margin:3px 0"><div style="flex:1;height:1px;background:${leg.lc}20"></div><span style="font-size:9px;color:#475569">🕐 ${leg.travel} นาที${avgLabel}</span><div style="flex:1;height:1px;background:${leg.lc}20"></div></div>
               <div style="display:flex;justify-content:space-between;margin-top:6px">
                 <div><div class="tiny">ลงที่</div><div style="font-size:13px;font-weight:700">${leg.to}</div></div>
                 <div style="text-align:right"><div class="tiny">ถึง <span style="font-size:7px;color:#60A5FA">กดแก้ไข</span></div>
-                  <div class="mono editable" onclick="editArrive('${leg.travelKey}','${leg.trainTime}','${leg.arrive}','${leg.line}','${leg.from}','${leg.to}')" style="font-size:16px;font-weight:700;color:#4ADE80">${leg.arrive}</div>
+                  <div class="mono editable ed-arrive" onclick="editArrive('${leg.travelKey}','${leg.trainTime}','${leg.arrive}','${leg.line}','${leg.from}','${leg.to}')" style="font-size:16px;font-weight:700;color:#4ADE80">${leg.arrive}</div>
                 </div>
               </div>
             </div>
@@ -547,34 +496,29 @@ function render(){
 
   // Settings
   h+=`<div style="margin-top:18px">
-    <button class="btn" onclick="toggleCfg()" style="width:100%;padding:10px;border-radius:10px;background:rgba(18,22,36,.4);border:1px solid rgba(100,116,139,.06);color:#475569;font-size:11px">⚙️ ${S.showCfg?'ปิด':'ตั้งค่าเวลาเดินทาง/เดินเปลี่ยนสาย'}</button>`;
+    <button class="btn" onclick="toggleCfg()" style="width:100%;padding:10px;border-radius:10px;background:rgba(18,22,36,.4);border:1px solid rgba(100,116,139,.06);color:#475569;font-size:11px">⚙️ ${S.showCfg?'ปิด':'ตั้งค่าเวลาเดินทาง'}</button>`;
   if(S.showCfg){
     h+=`<div class="card" style="margin-top:8px;padding:14px 16px">
-      <div style="font-size:11px;font-weight:700;color:#C4B5FD;margin-bottom:12px">🚇 เวลานั่งรถเริ่มต้น (นาที) — ถ้ามีประวัติจริงจะใช้ค่าเฉลี่ยแทน</div>`;
-    [{k:'purpleTravel',l:'สีม่วง: คลองบางไผ่ ↔ เตาปูน',c:'#8B5CF6'},{k:'blueTaoPoonChatuchak',l:'สีน้ำเงิน: เตาปูน → จตุจักร',c:'#2563EB'},{k:'blueChatuchakTaoPoon',l:'สีน้ำเงิน: จตุจักร → เตาปูน',c:'#2563EB'},{k:'greenMoChitChitLom',l:'สีเขียว: หมอชิต → ชิดลม',c:'#16A34A'},{k:'greenChitLomMoChit',l:'สีเขียว: ชิดลม → หมอชิต',c:'#16A34A'}].forEach(x=>{
+      <div style="font-size:11px;font-weight:700;color:#C4B5FD;margin-bottom:12px">🚇 เวลานั่งรถเริ่มต้น (นาที)</div>`;
+    [{k:'purpleTravel',l:'สีม่วง',c:'#8B5CF6'},{k:'blueTaoPoonChatuchak',l:'น้ำเงิน: เตาปูน→จตุจักร',c:'#2563EB'},{k:'blueChatuchakTaoPoon',l:'น้ำเงิน: จตุจักร→เตาปูน',c:'#2563EB'},{k:'greenMoChitChitLom',l:'เขียว: หมอชิต→ชิดลม',c:'#16A34A'},{k:'greenChitLomMoChit',l:'เขียว: ชิดลม→หมอชิต',c:'#16A34A'}].forEach(x=>{
       const log=S.travelLog[x.k];const avg=log?.length?Math.round(log.slice(-5).reduce((s,e)=>s+e.mins,0)/log.slice(-5).length):null;
-      h+=`<div style="margin-bottom:8px"><label style="font-size:10px;color:${x.c};display:block;margin-bottom:2px">${x.l}${avg?` <span style="color:#60A5FA">(เฉลี่ยจริง: ${avg} นาที)</span>`:''}</label><input type="number" value="${S.cfg[x.k]}" onchange="setCfgVal('${x.k}',this.value)" style="width:100%;padding:6px 9px;border-radius:6px;background:rgba(11,14,24,.5);border:1px solid rgba(100,116,139,.08);color:#F1F5F9;font-size:14px;outline:none"></div>`;
+      h+=`<div style="margin-bottom:8px"><label style="font-size:10px;color:${x.c}">${x.l}${avg?` <span style="color:#60A5FA">(เฉลี่ยจริง ${avg}m)</span>`:''}</label><input type="number" value="${S.cfg[x.k]}" onchange="setCfgVal('${x.k}',this.value)" style="width:100%;padding:6px 9px;border-radius:6px;background:rgba(11,14,24,.5);border:1px solid rgba(100,116,139,.08);color:#F1F5F9;font-size:14px;outline:none"></div>`;
     });
-    h+=`<div style="font-size:11px;font-weight:700;color:#FCD34D;margin-top:14px;margin-bottom:12px">🚶 เวลาเดินเปลี่ยนสาย (นาที)</div>`;
-    [{k:'walkTaoPoon',l:'เตาปูน: สีม่วง ↔ สีน้ำเงิน'},{k:'walkChatuchakMoChit',l:'จตุจักร ↔ หมอชิต'}].forEach(x=>{
-      h+=`<div style="margin-bottom:8px"><label style="font-size:10px;color:#FCD34D;display:block;margin-bottom:2px">${x.l}</label><input type="number" value="${S.cfg[x.k]}" onchange="setCfgVal('${x.k}',this.value)" style="width:100%;padding:6px 9px;border-radius:6px;background:rgba(11,14,24,.5);border:1px solid rgba(100,116,139,.08);color:#F1F5F9;font-size:14px;outline:none"></div>`;
+    h+=`<div style="font-size:11px;font-weight:700;color:#FCD34D;margin-top:14px;margin-bottom:12px">🚶 เดินเปลี่ยนสาย (นาที)</div>`;
+    [{k:'walkTaoPoon',l:'เตาปูน'},{k:'walkChatuchakMoChit',l:'จตุจักร↔หมอชิต'}].forEach(x=>{
+      h+=`<div style="margin-bottom:8px"><label style="font-size:10px;color:#FCD34D">${x.l}</label><input type="number" value="${S.cfg[x.k]}" onchange="setCfgVal('${x.k}',this.value)" style="width:100%;padding:6px 9px;border-radius:6px;background:rgba(11,14,24,.5);border:1px solid rgba(100,116,139,.08);color:#F1F5F9;font-size:14px;outline:none"></div>`;
     });
-    h+=`<div style="display:flex;gap:8px;margin-top:8px">
-      <button class="btn" onclick="resetCfg()" style="padding:7px 14px;border-radius:7px;background:rgba(239,68,68,.08);color:#FCA5A5;font-size:10px">🔄 รีเซ็ตค่าเริ่มต้น</button>
-      <button class="btn" onclick="resetAll()" style="padding:7px 14px;border-radius:7px;background:rgba(239,68,68,.08);color:#FCA5A5;font-size:10px">🗑️ ลบข้อมูลทั้งหมด</button>
-    </div></div>`;
+    h+=`<div style="display:flex;gap:8px;margin-top:8px"><button class="btn" onclick="resetCfg()" style="padding:7px 14px;border-radius:7px;background:rgba(239,68,68,.08);color:#FCA5A5;font-size:10px">🔄 รีเซ็ต</button><button class="btn" onclick="resetAll()" style="padding:7px 14px;border-radius:7px;background:rgba(239,68,68,.08);color:#FCA5A5;font-size:10px">🗑️ ลบทั้งหมด</button></div></div>`;
   }
-  h+=`</div>`;
-
-  h+=`<div style="text-align:center;margin-top:24px;font-size:9px;color:#334155">
-    <div>กดที่ <span style="color:#FACC15">เวลาออก</span> หรือ <span style="color:#60A5FA">เวลาถึง</span> เพื่อแก้ไข</div>
-    <div>ข้อมูลบันทึกในเครื่องถาวร • ยิ่งใช้ยิ่งแม่น</div>
+  h+=`</div><div style="text-align:center;margin-top:24px;font-size:9px;color:#334155">
+    <div>กด <span style="color:#FACC15">เวลาออก</span> หรือ <span style="color:#60A5FA">เวลาถึง</span> เพื่อบันทึกเวลาจริง</div>
+    <div>ยิ่งบันทึกเยอะ ยิ่งแม่น • ข้อมูลเก็บในเครื่องถาวร</div>
   </div>`;
 
   document.getElementById('app').innerHTML=h;
 }
 
-// Clock tick
+// Clock + auto refresh
 setInterval(()=>{const e=document.getElementById('ck');if(e){const n=new Date();e.textContent=`${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}:${String(n.getSeconds()).padStart(2,'0')}`;}},1000);
 setInterval(render,30000);
 render();
